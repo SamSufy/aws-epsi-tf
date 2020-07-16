@@ -23,6 +23,7 @@ resource "aws_subnet" "subnet_1_tf" {
     Name = "subnet_1_tf"
    }
 }
+
 resource "aws_subnet" "subnet_2_tf" {
   cidr_block = "10.10.2.0/24"
   vpc_id = aws_vpc.vpc_tf.id
@@ -30,6 +31,7 @@ resource "aws_subnet" "subnet_2_tf" {
     Name = "subnet_2_tf"
    }
 }
+
   # Create gateway
   resource "aws_internet_gateway" "igw_tf" {
   vpc_id = aws_vpc.vpc_tf.id
@@ -52,6 +54,7 @@ resource "aws_route_table" "routetable_tf" {
     Name = "routetable_tf"
   }
 }
+
 #Create association route table
 resource "aws_route_table_association" "routetableassociation" {
   subnet_id      = aws_subnet.subnet_1_tf.id
@@ -65,6 +68,7 @@ resource "tls_private_key" "key_tf" {
   algorithm   = "RSA"
   rsa_bits = "4096"
 }
+
 resource "aws_key_pair" "ec2-key-tf" {
   key_name   = "ec2-key-tf"
   public_key = tls_private_key.key_tf.public_key_openssh
