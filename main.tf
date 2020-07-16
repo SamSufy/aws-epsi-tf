@@ -1,145 +1,95 @@
+# AWS Provider
+
 provider "aws" {
-    version = "~> 2.0"
-    region = "us-east-1"
+  version = "~> 2.0"
+  region  = "us-east-1"
 }
 
+#--------------------------------------- RESEAU ----------------------------------------
 
-//VPC
-resource "aws_vpc" "default" {
-    cidr_block = "10.0.0.0/16"
-    
-    tags = {
-        Name = "terraform"
-    }
+# Create VPC
+resource "aws_vpc" "vpc_tf" {
+  cidr_block = "10.10.0.0/16"
+  tags = {
+    name = "vpc_tf"
+  }
 }
 
+# Create subnet
+resource "aws_subnet" "subnet_1_tf" {
+  cidr_block = "10.10.1.0/24"
+  vpc_id = aws_vpc.vpc_tf.id
+  tags = {
+    Name = "subnet_1_tf"
+   }
+}
+resource "aws_subnet" "subnet_2_tf" {
+  cidr_block = "10.10.2.0/24"
+  vpc_id = aws_vpc.vpc_tf.id
+  tags = {
+    Name = "subnet_2_tf"
+   }
+}
+  # Create gateway
+  resource "aws_internet_gateway" "igw_tf" {
+  vpc_id = aws_vpc.vpc_tf.id
 
-//SUBNETS
-resource "aws_subnet" "public-a" {
-    vpc_id     = aws_vpc.default.id
-    cidr_block = "10.0.1.0/24"
-    
-    tags = {
-        Name = "public-a-tf"
-    }
+  tags = {
+    Name = "igw_tf"
+  }
 }
 
-resource "aws_subnet" "public-b" {
-    vpc_id     = aws_vpc.default.id
-    cidr_block = "10.0.2.0/24"
-    
-    tags = {
-        Name = "public-b-tf"
-    }
-}
-
-resource "aws_subnet" "private-a" {
-    vpc_id     = aws_vpc.default.id
-    cidr_block = "10.0.3.0/24"
-    
-    tags = {
-        Name = "private-a-tf"
-    }
-}
-
-resource "aws_subnet" "private-b" {
-    vpc_id     = aws_vpc.default.id
-    cidr_block = "10.0.4.0/24"
-    
-    tags = {
-        Name = "private-b-tf"
-    }
-}
-
-
-//INTERNET GATEWAY
-resource "aws_internet_gateway" "gw" {
-    vpc_id = aws_vpc.default.id
-    
-    tags = {
-        Name = "igw-tf"
-    }
-}
-
-
-//ROUTE TABLE
-resource "aws_route_table" "r" {
-  vpc_id = aws_vpc.default.id
+# Create routetable
+resource "aws_route_table" "routetable_tf" {
+  vpc_id = aws_vpc.vpc_tf.id
 
   route {
     cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.gw.id
+    gateway_id = aws_internet_gateway.igw_tf.id
   }
 
   tags = {
-    Name = "internet-tf"
+    Name = "routetable_tf"
   }
 }
-
-resource "aws_route_table_association" "pa" {
-  subnet_id      = aws_subnet.public-a.id
-  route_table_id = aws_route_table.r.id
+#Create association route table
+resource "aws_route_table_association" "routetableassociation" {
+  subnet_id      = aws_subnet.subnet_1_tf.id
+  route_table_id = aws_route_table.routetable_tf.id
 }
 
-resource "aws_route_table_association" "pb" {
-  subnet_id      = aws_subnet.public-b.id
-  route_table_id = aws_route_table.r.id
-}
+#--------------------------------------- END RESEAU --------------------------------------------
 
-
-//KEY
-resource "tls_private_key" "pkey" {
+#Create clé RSA 4096
+resource "tls_private_key" "key_tf" {
   algorithm   = "RSA"
-  rsa_bits    = 4096
+  rsa_bits = "4096"
 }
-
-resource "aws_key_pair" "deployer" {
+resource "aws_key_pair" "ec2-key-tf" {
   key_name   = "ec2-key-tf"
-  public_key = tls_private_key.pkey.public_key_openssh
+  public_key = tls_private_key.key_tf.public_key_openssh
 }
 
-/*output "private-key" {
-    value = tls_private_key.pkey.private_key_pem
-}*/
+#--------------------------------------- INSTANCE ----------------------------------------------
 
+#Create EC2
+data "aws_ami" "ubuntu" {
+  most_recent = true
 
-//SECURITY GROUP
-resource "aws_security_group" "allow_httpandssh" {
-  name        = "allow_httpandssh"
-  description = "Allow HTTP inbound traffic"
-  vpc_id      = aws_vpc.default.id
-
-  ingress {
-    description = "HTTP"
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-  
-  ingress {
-    description = "SSH"
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/hvm-ssd/ubuntu-bionic-18.04-amd64-server-*"]
   }
 
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
   }
 
-  tags = {
-    Name = "allow_httpandssh"
-  }
+  owners = ["099720109477"] # Canonical
 }
 
-
-//INSTANCE
-resource "aws_instance" "web" {
+/*resource "aws_instance" "web" {
   ami           = data.aws_ami.ubuntu.id
   instance_type = "t2.micro"
   subnet_id     = aws_subnet.public-a.id
@@ -177,4 +127,151 @@ data "aws_ami" "ubuntu" {
 
 output "ami-value" {
     value = data.aws_ami.ubuntu.image_id
+}*/
+
+# - - - - - - - - - - - - - - - - - - -  LB  - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+#Create loadbalancer
+resource "aws_lb" "alb-tf" {
+  name               = "alb-tf"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.allow_http.id]
+  subnets            = ["aws_subnet.subnet_1_tf.id", "aws_subnet.subnet_2_tf.id"]
 }
+
+#Create lb target group
+resource "aws_lb_target_group" "lb-target-group-tf" {
+  name     = "lb-target-group-tf"
+  port     = 80
+  protocol = "HTTP"
+  vpc_id   = aws_vpc.vpc_tf.id
+}
+
+#Create lb listner
+resource "aws_lb_listener" "alb_listner_tf" {
+  load_balancer_arn = aws_lb.alb-tf.arn
+  port              = "80"
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.lb-target-group-tf.arn
+  }
+}
+
+##### END LB #####
+
+##### ASG #####
+
+#Auto-scalling-group
+resource "aws_placement_group" "asg_placement_group_tf" {
+  name     = "asg_placement_group_tf"
+  strategy = "cluster"
+}
+
+resource "aws_autoscaling_group" "asg_tf" {
+  name                      = "asg_tf"
+  max_size                  = 3
+  min_size                  = 2
+  health_check_grace_period = 300
+  health_check_type         = "ELB"
+  desired_capacity          = 4
+  force_delete              = true
+  placement_group           = aws_placement_group.asg_placement_group_tf.id
+  launch_configuration      = aws_launch_configuration.launch_configuration_tf.name
+  vpc_zone_identifier       = aws_subnet.subnet_1_tf.id
+
+  initial_lifecycle_hook {
+    name                 = "asg_lifecycle_tf"
+    default_result       = "CONTINUE"
+    heartbeat_timeout    = 2000
+    lifecycle_transition = "autoscaling:EC2_INSTANCE_LAUNCHING"
+  }
+
+  timeouts {
+    delete = "5m"
+  }
+}
+
+resource "aws_autoscaling_attachment" "asg_attachment_tf" {
+  autoscaling_group_name = aws_autoscaling_group.asg_tf.id
+  alb_target_group_arn   = aws_alb_target_group.lb-target-group-tf.arn
+}
+
+#Create LAUNCH CONFIGURATION
+resource "aws_launch_configuration" "launch_configuration_tf" {
+  image_id = data.aws_ami.ubuntu.id
+  instance_type = "t2.micro"
+  security_groups = aws_security_group.allow_http.id
+  user_data = file("${path.module}/post_install.sh")
+}
+
+# - - - - - - - - - - - - - - - - - - -  END ASG  - - - - - - - - - - - - - - - - - - - - - - - 
+
+#--------------------------------------- END INSTANCE ------------------------------------------
+
+#--------------------------------------- SECURITY GROUP ----------------------------------------
+
+resource "aws_security_group" "allow_http" {
+  name        = "allow_http_from_any"
+  description = "Allow http inbound traffic"
+  vpc_id      = aws_vpc.vpc_tf.id
+
+  ingress {
+    description = "HTTP"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "allow_http"
+  }
+}
+
+resource "aws_security_group" "allow_ssh_vpc" {
+  name        = "allow_ssh_from_vpc"
+  description = "Allow ssh inbound traffic"
+  vpc_id      = aws_vpc.vpc_tf.id
+
+  ingress {
+    description = "SSH"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = [aws_vpc.vpc_tf.cidr_block]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "allow_ssh_vpc"
+  }
+}
+
+#--------------------------------------- END SECURITY GROUP ------------------------------------
+
+#OUTPUT
+
+/*output "private-key" {
+    value = tls_private_key.pkey.private_key_pem
+}*/
+
+/*output "public-ip" {
+  value = aws_instance.web.public_ip
+}*/
+
